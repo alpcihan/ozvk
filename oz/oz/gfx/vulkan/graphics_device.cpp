@@ -1,5 +1,5 @@
 #include "oz/gfx/vulkan/graphics_device.h"
-#include "oz/core/file/file.h"
+#include "oz/core/file.h"
 #include "oz/gfx/vulkan/objects_internal.h"
 
 #include <cstring>
@@ -517,7 +517,7 @@ CommandBuffer GraphicsDevice::createCommandBuffer() {
 }
 
 Shader GraphicsDevice::createShader(const std::string& path, ShaderStage stage) {
-    std::string absolutePath = file::getBuildPath() + "/oz/resources/shaders/";
+    std::string absolutePath = file::getBuildPath() + "/resources/shaders/";
     absolutePath += path + ".spv";
     auto code = file::readFile(absolutePath);
 

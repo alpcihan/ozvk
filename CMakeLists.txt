@@ -9,4 +9,7 @@ if(WIN32)
     add_definitions(-DNOMINMAX)
 endif()
 
+add_subdirectory(external)
+add_subdirectory(resources/shaders)
 add_subdirectory(oz)
+add_subdirectory(examples)
