@@ -86,19 +86,22 @@ int main() {
     device.free(mvpLayout);
     device.free(countLayout);
 
-    uint32_t frameCount = 0;
-    uint32_t num   = 1;
+    oz::Timer timer;
+    uint32_t  num = 1;
+
     // render loop
     while (device.isWindowOpen(window)) {
+        timer.tick();
+
         uint32_t      imageIndex = device.getCurrentImage(window);
         CommandBuffer cmd        = device.getCurrentCommandBuffer();
 
         // update ubo
         {
-            static auto startTime   = std::chrono::high_resolution_clock::now();
-            auto        currentTime = std::chrono::high_resolution_clock::now();
-            float       time        = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-            MVP         mvp{};
+            float    time       = timer.elapsed();
+            uint32_t frameCount = static_cast<uint32_t>(timer.frameCount());
+
+            MVP mvp{};
             mvp.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
             mvp.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
             mvp.proj  = glm::perspective(glm::radians(45.0f), (float)windowWidth / (float)windowHeight, 0.1f, 10.0f);
@@ -121,8 +124,6 @@ int main() {
 
         device.submitCmd(cmd);
         device.presentImage(window, imageIndex);
-
-        frameCount++;
     }
     device.waitIdle();
 
