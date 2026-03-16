@@ -1,9 +1,5 @@
-if(WIN32)
-    add_definitions(-DNOMINMAX)
-    set(GLSLC glslc.exe) 
-else()
-    set(GLSLC glslc)
-endif(WIN32)
+find_package(Vulkan REQUIRED COMPONENTS glslc)
+set(GLSLC Vulkan::glslc)
 
 file(GLOB_RECURSE GLSL_SHADERS CONFIGURE_DEPENDS "glsl/*")
 

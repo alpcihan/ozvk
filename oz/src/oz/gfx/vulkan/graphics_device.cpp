@@ -63,6 +63,7 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
         std::vector<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
+        std::vector<const char*> supportedLayers;
         for (const char* layerName : layers) {
             bool layerFound = false;
             for (const auto& layerProperties : availableLayers) {
@@ -71,8 +72,13 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
                     break;
                 }
             }
-            assert(layerFound);
+            if (layerFound) {
+                supportedLayers.push_back(layerName);
+            } else {
+                std::cerr << "Warning: Validation layer " << layerName << " not available, skipping." << std::endl;
+            }
         }
+        layers = supportedLayers;
     }
 
     // populate debug messenger create info
