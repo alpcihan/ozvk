@@ -2,7 +2,10 @@
 
 #include "oz/gfx/vulkan/common.h"
 #include "oz/gfx/vulkan/objects.h"
+#include "oz/gfx/vulkan/objects_internal.h"
 #include "oz/gfx/vulkan/property_structs.h"
+#include "oz/gfx/vulkan/resource_pool.h"
+
 namespace oz::gfx::vk {
 
 class GraphicsDevice final {
@@ -68,15 +71,15 @@ class GraphicsDevice final {
     void copyBuffer(Buffer src, Buffer dst, uint64_t size);
 
     // free methods
-    void free(Window window) const;
-    void free(Shader shader) const;
-    void free(RenderPass renderPass) const;
-    void free(Semaphore semaphore) const;
-    void free(Fence fence) const;
-    void free(CommandBuffer commandBuffer) const;
-    void free(Buffer buffer) const;
-    void free(DescriptorSetLayout descriptorSetLayout) const;
-    void free(DescriptorSet descriptorSet) const;
+    void free(Window window);
+    void free(Shader shader);
+    void free(RenderPass renderPass);
+    void free(Semaphore semaphore);
+    void free(Fence fence);
+    void free(CommandBuffer commandBuffer);
+    void free(Buffer buffer);
+    void free(DescriptorSetLayout descriptorSetLayout);
+    void free(DescriptorSet descriptorSet);
 
   public:
     VkDevice m_device = VK_NULL_HANDLE;
@@ -89,8 +92,8 @@ class GraphicsDevice final {
     std::vector<VkQueueFamilyProperties> m_queueFamilies;
     uint32_t                             m_graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
 
-    VkCommandPool    m_commandPool    = VK_NULL_HANDLE; // TODO: Support multiple command pools
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE; // TODO: Support multiple and dynamic descriptor pool
+    VkCommandPool    m_commandPool    = VK_NULL_HANDLE;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 
     VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
 
@@ -100,6 +103,17 @@ class GraphicsDevice final {
     std::vector<Semaphore>     m_renderFinishedSemaphores;
 
     uint32_t m_currentFrame = 0;
+
+    // resource pools
+    ResourcePool<WindowObject>              m_windows;
+    ResourcePool<ShaderObject>              m_shaders;
+    ResourcePool<RenderPassObject>          m_renderPasses;
+    ResourcePool<FenceObject>               m_fences;
+    ResourcePool<SemaphoreObject>           m_semaphores;
+    ResourcePool<CommandBufferObject>       m_cmdBuffers;
+    ResourcePool<BufferObject>              m_buffers;
+    ResourcePool<DescriptorSetLayoutObject> m_descriptorSetLayouts;
+    ResourcePool<DescriptorSetObject>       m_descriptorSets;
 };
 
 } // namespace oz::gfx::vk

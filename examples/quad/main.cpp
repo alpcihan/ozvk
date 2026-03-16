@@ -124,16 +124,5 @@ int main() {
     }
     device.waitIdle();
 
-    // free resources
-    device.free(vertShader);
-    device.free(fragShader);
-    device.free(window);
-    device.free(renderPass);
-    device.free(vertexBuffer);
-    device.free(indexBuffer);
-    device.free(mvpBuffer);
-    device.free(countBuffer);
-    device.free(numBuffer);
-
     return 0;
 }

@@ -2,6 +2,7 @@
 
 #include "oz/gfx/vulkan/common.h"
 #include "oz/gfx/vulkan/enums.h"
+#include "oz/gfx/vulkan/objects.h"
 
 namespace oz::gfx::vk {
 

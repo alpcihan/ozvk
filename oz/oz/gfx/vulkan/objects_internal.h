@@ -1,31 +1,27 @@
 #pragma once
 
 #include "oz/gfx/vulkan/common.h"
+#include "oz/gfx/vulkan/enums.h"
 
 namespace oz::gfx::vk {
 
-struct IObject {
-    virtual ~IObject()                   = default;
-    virtual void free(VkDevice vkDevice) = 0;
-};
-
-struct ShaderObject final : IObject {
+struct ShaderObject {
     ShaderStage stage;
 
     VkShaderModule                  vkShaderModule                  = VK_NULL_HANDLE;
     VkPipelineShaderStageCreateInfo vkPipelineShaderStageCreateInfo = {};
 
-    void free(VkDevice vkDevice) override { vkDestroyShaderModule(vkDevice, vkShaderModule, nullptr); }
+    void free(VkDevice vkDevice) { vkDestroyShaderModule(vkDevice, vkShaderModule, nullptr); }
 };
 
-struct RenderPassObject final : IObject {
+struct RenderPassObject {
     VkRenderPass               vkRenderPass       = VK_NULL_HANDLE;
     VkPipelineLayout           vkPipelineLayout   = VK_NULL_HANDLE;
     VkPipeline                 vkGraphicsPipeline = VK_NULL_HANDLE;
     VkExtent2D                 vkExtent           = {};
     std::vector<VkFramebuffer> vkFrameBuffers;
 
-    void free(VkDevice vkDevice) override {
+    void free(VkDevice vkDevice) {
         vkDestroyPipeline(vkDevice, vkGraphicsPipeline, nullptr);
         vkDestroyPipelineLayout(vkDevice, vkPipelineLayout, nullptr);
         vkDestroyRenderPass(vkDevice, vkRenderPass, nullptr);
@@ -36,19 +32,19 @@ struct RenderPassObject final : IObject {
     }
 };
 
-struct SemaphoreObject final : IObject {
+struct SemaphoreObject {
     VkSemaphore vkSemaphore = VK_NULL_HANDLE;
-    // TODO: only vkSemaphore is supported
-    void free(VkDevice vkDevice) override { vkDestroySemaphore(vkDevice, vkSemaphore, nullptr); }
+
+    void free(VkDevice vkDevice) { vkDestroySemaphore(vkDevice, vkSemaphore, nullptr); }
 };
 
-struct FenceObject final : IObject {
+struct FenceObject {
     VkFence vkFence = VK_NULL_HANDLE;
-    // TODO: only vkFence is supported
-    void free(VkDevice vkDevice) override { vkDestroyFence(vkDevice, vkFence, nullptr); }
+
+    void free(VkDevice vkDevice) { vkDestroyFence(vkDevice, vkFence, nullptr); }
 };
 
-struct WindowObject final : IObject {
+struct WindowObject {
     GLFWwindow*  vkWindow  = nullptr;
     VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
 
@@ -62,73 +58,56 @@ struct WindowObject final : IObject {
 
     VkInstance vkInstance = VK_NULL_HANDLE; // referenced to used on free
 
-    void free(VkDevice vkDevice) override {
-        // swap chain
+    void free(VkDevice vkDevice) {
         vkDestroySwapchainKHR(vkDevice, vkSwapChain, nullptr);
 
-        // image views
         for (auto imageView : vkSwapChainImageViews) {
             vkDestroyImageView(vkDevice, imageView, nullptr);
         }
 
-        // images
-        // for (auto image : window->vkSwapChainImages) {
-        //    vkDestroyImage(vkDevice, image, nullptr);
-        // }
-
-        // surface
         if (vkSurface != VK_NULL_HANDLE) {
             vkDestroySurfaceKHR(vkInstance, vkSurface, nullptr);
         }
 
-        // window
         if (vkWindow != nullptr) {
             glfwDestroyWindow(vkWindow);
         }
     }
 };
 
-struct CommandBufferObject final : IObject {
+struct CommandBufferObject {
     VkCommandBuffer vkCommandBuffer = VK_NULL_HANDLE;
 
-    void free(VkDevice vkDevice) override {}
+    void free(VkDevice vkDevice) {}
 };
 
-struct BufferObject final : IObject {
+struct BufferObject {
     VkBuffer       vkBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vkMemory = VK_NULL_HANDLE;
     void*          data     = nullptr;
 
-    void free(VkDevice vkDevice) override {
+    void free(VkDevice vkDevice) {
         vkDestroyBuffer(vkDevice, vkBuffer, nullptr);
         vkFreeMemory(vkDevice, vkMemory, nullptr);
         data = nullptr;
     }
 };
 
-struct DescriptorSetLayoutObject final : IObject {
+struct DescriptorSetLayoutObject {
     VkDescriptorSetLayout vkDescriptorSetLayout = VK_NULL_HANDLE;
 
-    void free(VkDevice vkDevice) override { vkDestroyDescriptorSetLayout(vkDevice, vkDescriptorSetLayout, nullptr); }
+    void free(VkDevice vkDevice) { vkDestroyDescriptorSetLayout(vkDevice, vkDescriptorSetLayout, nullptr); }
 };
 
-struct DescriptorSetObject final : IObject {
-    VkDescriptorSet vkDescriptorSet = VK_NULL_HANDLE;
+struct DescriptorSetObject {
+    VkDescriptorSet  vkDescriptorSet  = VK_NULL_HANDLE;
     VkDescriptorPool vkDescriptorPool = VK_NULL_HANDLE;
-    void free(VkDevice vkDevice) override {
+
+    void free(VkDevice vkDevice) {
         if (vkDescriptorSet != VK_NULL_HANDLE) {
             vkFreeDescriptorSets(vkDevice, vkDescriptorPool, 1, &vkDescriptorSet);
         }
     }
 };
 
-#define OZ_CREATE_VK_OBJECT(TYPE) new TYPE##Object
-
-#define OZ_FREE_VK_OBJECT(vkDevice, vkObject) \
-    if (vkObject) {                           \
-        vkObject->free(vkDevice);             \
-        delete vkObject;                      \
-        vkObject = nullptr;                   \
-    } //\
-
-} // namespace oz::gfx::vk 
+} // namespace oz::gfx::vk

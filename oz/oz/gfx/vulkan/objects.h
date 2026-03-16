@@ -1,19 +1,29 @@
 #pragma once
 
-#include "oz/gfx/vulkan/common.h"
+#include <cstdint>
 
 namespace oz::gfx::vk {
 
-#define OZ_VK_OBJECT(NAME) typedef struct NAME##Object* NAME;
+static constexpr uint32_t INVALID_HANDLE = UINT32_MAX;
 
-OZ_VK_OBJECT(Window);
-OZ_VK_OBJECT(Shader);
-OZ_VK_OBJECT(RenderPass);
-OZ_VK_OBJECT(Fence);
-OZ_VK_OBJECT(Semaphore);
-OZ_VK_OBJECT(CommandBuffer);
-OZ_VK_OBJECT(Buffer);
-OZ_VK_OBJECT(DescriptorSetLayout);
-OZ_VK_OBJECT(DescriptorSet);
+#define OZ_HANDLE(NAME)                                                     \
+    struct NAME {                                                           \
+        uint32_t id = INVALID_HANDLE;                                       \
+        bool     isValid() const { return id != INVALID_HANDLE; }           \
+        bool     operator==(const NAME& other) const { return id == other.id; } \
+        bool     operator!=(const NAME& other) const { return id != other.id; } \
+    };
 
-} // namespace oz::gfx::vk 
+OZ_HANDLE(Window)
+OZ_HANDLE(Shader)
+OZ_HANDLE(RenderPass)
+OZ_HANDLE(Fence)
+OZ_HANDLE(Semaphore)
+OZ_HANDLE(CommandBuffer)
+OZ_HANDLE(Buffer)
+OZ_HANDLE(DescriptorSetLayout)
+OZ_HANDLE(DescriptorSet)
+
+#undef OZ_HANDLE
+
+} // namespace oz::gfx::vk

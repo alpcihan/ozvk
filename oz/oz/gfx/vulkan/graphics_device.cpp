@@ -1,6 +1,5 @@
 #include "oz/gfx/vulkan/graphics_device.h"
 #include "oz/core/file.h"
-#include "oz/gfx/vulkan/objects_internal.h"
 
 #include <cstring>
 
@@ -9,7 +8,7 @@ namespace oz::gfx::vk {
 #define OZ_VK_ASSERT(result) assert(result == VK_SUCCESS)
 
 #if defined(__APPLE__)
-    #define OZ_REQUIRES_VK_PORTABILITY_SUBSET
+#define OZ_REQUIRES_VK_PORTABILITY_SUBSET
 #endif
 
 namespace {
@@ -38,10 +37,10 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
     // populate required extensions
     const std::vector<const char*> requiredExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    
-        #ifdef OZ_REQUIRES_VK_PORTABILITY_SUBSET
+
+#ifdef OZ_REQUIRES_VK_PORTABILITY_SUBSET
         "VK_KHR_portability_subset",
-        #endif
+#endif
     };
     // populate required instance extensions
     std::vector<const char*> requiredInstanceExtensions(extensions, extensions + extensionCount);
@@ -84,35 +83,30 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
     // populate debug messenger create info
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
     {
-        if (enableValidationLayers) {
-            debugCreateInfo.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-            debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                              VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-            debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                          VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            debugCreateInfo.pfnUserCallback = debugCallback;
-        }
+        debugCreateInfo.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debugCreateInfo.pfnUserCallback = debugCallback;
     }
 
     // create instance
     {
-        // app info
         VkApplicationInfo appInfo{};
-        appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName   = "oz";
-        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.pEngineName        = "oz";
-        appInfo.apiVersion         = VK_API_VERSION_1_0;
+        appInfo.sType            = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        appInfo.pApplicationName = "oz";
+        appInfo.pEngineName      = "oz";
+        appInfo.apiVersion       = VK_API_VERSION_1_2;
 
-        // instance create info
         VkInstanceCreateInfo createInfo{};
         createInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pNext                   = enableValidationLayers ? &debugCreateInfo : nullptr;
         createInfo.pApplicationInfo        = &appInfo;
-        createInfo.enabledLayerCount       = static_cast<uint32_t>(layers.size());
-        createInfo.ppEnabledLayerNames     = layers.data();
         createInfo.enabledExtensionCount   = static_cast<uint32_t>(requiredInstanceExtensions.size());
         createInfo.ppEnabledExtensionNames = requiredInstanceExtensions.data();
+        createInfo.enabledLayerCount       = static_cast<uint32_t>(layers.size());
+        createInfo.ppEnabledLayerNames     = layers.data();
+        createInfo.pNext                   = enableValidationLayers ? &debugCreateInfo : nullptr;
         createInfo.flags                   = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
         OZ_VK_ASSERT(vkCreateInstance(&createInfo, nullptr, &m_instance));
@@ -142,11 +136,21 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
 
             std::string deviceTypeStr;
             switch (deviceProperties.deviceType) {
-                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: deviceTypeStr = "Discrete GPU"; break;
-                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: deviceTypeStr = "Integrated GPU"; break;
-                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: deviceTypeStr = "Virtual GPU"; break;
-                case VK_PHYSICAL_DEVICE_TYPE_CPU: deviceTypeStr = "CPU"; break;
-                default: deviceTypeStr = "Other"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                deviceTypeStr = "Discrete GPU";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                deviceTypeStr = "Integrated GPU";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                deviceTypeStr = "Virtual GPU";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                deviceTypeStr = "CPU";
+                break;
+            default:
+                deviceTypeStr = "Other";
+                break;
             }
 
             std::cout << "  - " << deviceProperties.deviceName << " (" << deviceTypeStr << ")\n";
@@ -245,6 +249,7 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes    = &poolSize;
         poolInfo.maxSets       = DESCRIPTOR_POOL_SIZE;
@@ -268,12 +273,14 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
 }
 
 GraphicsDevice::~GraphicsDevice() {
-    // destroy descriptor pool
-    vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-
-    // destroy command pool
-    vkDestroyCommandPool(m_device, m_commandPool, nullptr);
-    m_commandPool = VK_NULL_HANDLE;
+    // drain all resource pools (before destroying pools/device)
+    auto cleanup = [&](auto& pool) { pool.forEachAlive([&](auto& obj) { obj.free(m_device); }); };
+    cleanup(m_descriptorSets);
+    cleanup(m_descriptorSetLayouts);
+    cleanup(m_renderPasses);
+    cleanup(m_buffers);
+    cleanup(m_shaders);
+    cleanup(m_cmdBuffers);
 
     // destroy synchronization objects
     for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
@@ -284,6 +291,17 @@ GraphicsDevice::~GraphicsDevice() {
     m_renderFinishedSemaphores.clear();
     m_imageAvailableSemaphores.clear();
     m_inFlightFences.clear();
+
+    cleanup(m_semaphores);
+    cleanup(m_fences);
+    cleanup(m_windows);
+
+    // destroy descriptor pool
+    vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+
+    // destroy command pool
+    vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+    m_commandPool = VK_NULL_HANDLE;
 
     // destroy device
     vkDestroyDevice(m_device, nullptr);
@@ -439,7 +457,7 @@ Window GraphicsDevice::createWindow(const uint32_t width, const uint32_t height,
                 createInfo.clipped          = VK_TRUE;
                 createInfo.oldSwapchain     = VK_NULL_HANDLE;
 
-                uint32_t queueFamilyIndices[] = {m_graphicsFamily,presentFamily};
+                uint32_t queueFamilyIndices[] = {m_graphicsFamily, presentFamily};
 
                 if (m_graphicsFamily != presentFamily) {
                     createInfo.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
@@ -483,18 +501,18 @@ Window GraphicsDevice::createWindow(const uint32_t width, const uint32_t height,
     }
 
     // create window object
-    Window window                  = OZ_CREATE_VK_OBJECT(Window);
-    window->vkWindow               = vkWindow;
-    window->vkSurface              = vkSurface;
-    window->vkSwapChain            = vkSwapChain;
-    window->vkSwapChainExtent      = std::move(vkSwapChainExtent);
-    window->vkSwapChainImageFormat = vkSwapChainImageFormat;
-    window->vkSwapChainImages      = std::move(vkSwapChainImages);
-    window->vkSwapChainImageViews  = std::move(vkSwapChainImageViews);
-    window->vkPresentQueue         = vkPresentQueue;
-    window->vkInstance             = m_instance;
+    WindowObject obj{};
+    obj.vkWindow               = vkWindow;
+    obj.vkSurface              = vkSurface;
+    obj.vkSwapChain            = vkSwapChain;
+    obj.vkSwapChainExtent      = vkSwapChainExtent;
+    obj.vkSwapChainImageFormat = vkSwapChainImageFormat;
+    obj.vkSwapChainImages      = std::move(vkSwapChainImages);
+    obj.vkSwapChainImageViews  = std::move(vkSwapChainImageViews);
+    obj.vkPresentQueue         = vkPresentQueue;
+    obj.vkInstance             = m_instance;
 
-    return window;
+    return Window{m_windows.add(std::move(obj))};
 }
 
 CommandBuffer GraphicsDevice::createCommandBuffer() {
@@ -510,10 +528,9 @@ CommandBuffer GraphicsDevice::createCommandBuffer() {
         OZ_VK_ASSERT(vkAllocateCommandBuffers(m_device, &allocInfo, &vkCommandBuffer));
     }
 
-    // create command buffer object
-    CommandBuffer commandBuffer    = OZ_CREATE_VK_OBJECT(CommandBuffer);
-    commandBuffer->vkCommandBuffer = vkCommandBuffer;
-    return commandBuffer;
+    CommandBufferObject obj{};
+    obj.vkCommandBuffer = vkCommandBuffer;
+    return CommandBuffer{m_cmdBuffers.add(std::move(obj))};
 }
 
 Shader GraphicsDevice::createShader(const std::string& path, ShaderStage stage) {
@@ -538,13 +555,12 @@ Shader GraphicsDevice::createShader(const std::string& path, ShaderStage stage) 
     shaderStageInfo.module = shaderModule;
     shaderStageInfo.pName  = "main";
 
-    // create shader object
-    Shader shaderData                           = OZ_CREATE_VK_OBJECT(Shader);
-    shaderData->stage                           = stage;
-    shaderData->vkShaderModule                  = shaderModule;
-    shaderData->vkPipelineShaderStageCreateInfo = shaderStageInfo;
+    ShaderObject obj{};
+    obj.stage                           = stage;
+    obj.vkShaderModule                  = shaderModule;
+    obj.vkPipelineShaderStageCreateInfo = shaderStageInfo;
 
-    return shaderData;
+    return Shader{m_shaders.add(std::move(obj))};
 }
 
 RenderPass GraphicsDevice::createRenderPass(Shader                                  vertexShader,
@@ -552,11 +568,15 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
                                             Window                                  window,
                                             const VertexLayoutInfo&                 vertexLayout,
                                             const std::vector<DescriptorSetLayout>& descriptorSetLayouts) {
+    auto& windowObj = m_windows.get(window.id);
+    auto& vertObj   = m_shaders.get(vertexShader.id);
+    auto& fragObj   = m_shaders.get(fragmentShader.id);
+
     // create render pass
     VkRenderPass vkRenderPass;
     {
         VkAttachmentDescription colorAttachment{};
-        colorAttachment.format         = window->vkSwapChainImageFormat;
+        colorAttachment.format         = windowObj.vkSwapChainImageFormat;
         colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
         colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
@@ -598,7 +618,7 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
     VkPipelineLayout                   vkPipelineLayout;
     std::vector<VkDescriptorSetLayout> vkDescriptorSetLayouts;
     for (const auto& layout : descriptorSetLayouts) {
-        vkDescriptorSetLayouts.push_back(layout->vkDescriptorSetLayout);
+        vkDescriptorSetLayouts.push_back(m_descriptorSetLayouts.get(layout.id).vkDescriptorSetLayout);
     }
 
     {
@@ -613,7 +633,6 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
     }
 
     // create vertex state input info
-    // TODO: store at the VertexLayout struct instead of re-creating for each render pass
     VkPipelineVertexInputStateCreateInfo           vertexInputInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     VkVertexInputBindingDescription                bindingDescription{};
     std::vector<VkVertexInputAttributeDescription> attributeDescriptions(vertexLayout.vertexLayoutAttributes.size());
@@ -630,7 +649,7 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
 
                 vkAttributeDescription.binding  = 0;
                 vkAttributeDescription.location = i;
-                vkAttributeDescription.format   = (VkFormat)attribute.format; // TODO: do not cast, use conversion util
+                vkAttributeDescription.format   = (VkFormat)attribute.format;
                 vkAttributeDescription.offset   = attribute.offset;
             }
             bindingDescription.binding   = 0;
@@ -662,14 +681,14 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
         VkViewport viewport{};
         viewport.x        = 0.0f;
         viewport.y        = 0.0f;
-        viewport.width    = static_cast<float>(window->vkSwapChainExtent.width);
-        viewport.height   = static_cast<float>(window->vkSwapChainExtent.height);
+        viewport.width    = static_cast<float>(windowObj.vkSwapChainExtent.width);
+        viewport.height   = static_cast<float>(windowObj.vkSwapChainExtent.height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
         VkRect2D scissor{};
         scissor.offset = {0, 0};
-        scissor.extent = window->vkSwapChainExtent;
+        scissor.extent = windowObj.vkSwapChainExtent;
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -686,7 +705,7 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
         rasterizer.lineWidth               = 1.0f;
         rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;
         rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-        rasterizer.depthBiasEnable = VK_FALSE;
+        rasterizer.depthBiasEnable         = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo multisampling{};
         multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -697,72 +716,70 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
         colorBlendAttachment.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         colorBlendAttachment.blendEnable         = VK_FALSE;
-        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;  // Optional
-        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-        colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;      // Optional
-        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;  // Optional
-        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-        colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;      // Optional
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
 
         VkPipelineColorBlendStateCreateInfo colorBlending{};
         colorBlending.sType             = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
         colorBlending.logicOpEnable     = VK_FALSE;
-        colorBlending.logicOp           = VK_LOGIC_OP_COPY; // Optional
+        colorBlending.logicOp           = VK_LOGIC_OP_COPY;
         colorBlending.attachmentCount   = 1;
         colorBlending.pAttachments      = &colorBlendAttachment;
-        colorBlending.blendConstants[0] = 0.0f; // Optional
-        colorBlending.blendConstants[1] = 0.0f; // Optional
-        colorBlending.blendConstants[2] = 0.0f; // Optional
-        colorBlending.blendConstants[3] = 0.0f; // Optional
+        colorBlending.blendConstants[0] = 0.0f;
+        colorBlending.blendConstants[1] = 0.0f;
+        colorBlending.blendConstants[2] = 0.0f;
+        colorBlending.blendConstants[3] = 0.0f;
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineInfo.stageCount = 2;
 
-        VkPipelineShaderStageCreateInfo stages[]= {vertexShader->vkPipelineShaderStageCreateInfo, fragmentShader->vkPipelineShaderStageCreateInfo};
-        pipelineInfo.pStages =stages;
-        pipelineInfo.pVertexInputState   = &vertexInputInfo;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState      = &viewportState;
-        pipelineInfo.pRasterizationState = &rasterizer;
-        pipelineInfo.pMultisampleState   = &multisampling;
-        pipelineInfo.pColorBlendState    = &colorBlending;
-        pipelineInfo.pDynamicState       = &dynamicState;
-        pipelineInfo.layout              = vkPipelineLayout;
-        pipelineInfo.renderPass          = vkRenderPass;
-        pipelineInfo.subpass             = 0;
+        VkPipelineShaderStageCreateInfo stages[] = {vertObj.vkPipelineShaderStageCreateInfo, fragObj.vkPipelineShaderStageCreateInfo};
+        pipelineInfo.pStages                     = stages;
+        pipelineInfo.pVertexInputState           = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState         = &inputAssembly;
+        pipelineInfo.pViewportState              = &viewportState;
+        pipelineInfo.pRasterizationState         = &rasterizer;
+        pipelineInfo.pMultisampleState           = &multisampling;
+        pipelineInfo.pColorBlendState            = &colorBlending;
+        pipelineInfo.pDynamicState               = &dynamicState;
+        pipelineInfo.layout                      = vkPipelineLayout;
+        pipelineInfo.renderPass                  = vkRenderPass;
+        pipelineInfo.subpass                     = 0;
 
         OZ_VK_ASSERT(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vkGraphicsPipeline));
     }
 
     // create frame buffers
-    std::vector<VkFramebuffer> vkFrameBuffers(window->vkSwapChainImageViews.size());
-    for (size_t i = 0; i < window->vkSwapChainImageViews.size(); i++) {
+    std::vector<VkFramebuffer> vkFrameBuffers(windowObj.vkSwapChainImageViews.size());
+    for (size_t i = 0; i < windowObj.vkSwapChainImageViews.size(); i++) {
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass      = vkRenderPass;
         framebufferInfo.attachmentCount = 1;
-        framebufferInfo.pAttachments    = &window->vkSwapChainImageViews[i];
-        framebufferInfo.width           = window->vkSwapChainExtent.width;
-        framebufferInfo.height          = window->vkSwapChainExtent.height;
+        framebufferInfo.pAttachments    = &windowObj.vkSwapChainImageViews[i];
+        framebufferInfo.width           = windowObj.vkSwapChainExtent.width;
+        framebufferInfo.height          = windowObj.vkSwapChainExtent.height;
         framebufferInfo.layers          = 1;
 
         OZ_VK_ASSERT(vkCreateFramebuffer(m_device, &framebufferInfo, nullptr, &vkFrameBuffers[i]));
     }
 
-    // create render pass object
-    RenderPass renderPass          = OZ_CREATE_VK_OBJECT(RenderPass);
-    renderPass->vkRenderPass       = vkRenderPass;
-    renderPass->vkPipelineLayout   = vkPipelineLayout;
-    renderPass->vkGraphicsPipeline = vkGraphicsPipeline;
-    renderPass->vkExtent           = window->vkSwapChainExtent;
-    renderPass->vkFrameBuffers     = std::move(vkFrameBuffers);
+    RenderPassObject obj{};
+    obj.vkRenderPass       = vkRenderPass;
+    obj.vkPipelineLayout   = vkPipelineLayout;
+    obj.vkGraphicsPipeline = vkGraphicsPipeline;
+    obj.vkExtent           = windowObj.vkSwapChainExtent;
+    obj.vkFrameBuffers     = std::move(vkFrameBuffers);
 
-    return renderPass;
+    return RenderPass{m_renderPasses.add(std::move(obj))};
 }
 
 Semaphore GraphicsDevice::createSemaphore() {
-    // create semaphore
     VkSemaphore vkSemaphore;
     {
         VkSemaphoreCreateInfo semaphoreInfo{};
@@ -771,11 +788,9 @@ Semaphore GraphicsDevice::createSemaphore() {
         OZ_VK_ASSERT(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &vkSemaphore));
     }
 
-    // create semaphore object
-    Semaphore semaphore    = OZ_CREATE_VK_OBJECT(Semaphore);
-    semaphore->vkSemaphore = vkSemaphore;
-
-    return semaphore;
+    SemaphoreObject obj{};
+    obj.vkSemaphore = vkSemaphore;
+    return Semaphore{m_semaphores.add(std::move(obj))};
 }
 
 Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const void* data) {
@@ -816,7 +831,6 @@ Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const 
     // find suitable memory and allocate
     VkDeviceMemory vkBufferMemory;
     {
-        // get memory requirements
         VkMemoryRequirements memRequirements;
         vkGetBufferMemoryRequirements(m_device, vkBuffer, &memRequirements);
 
@@ -838,7 +852,6 @@ Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const 
         allocInfo.allocationSize  = memRequirements.size;
         allocInfo.memoryTypeIndex = i;
 
-        // allocate memory //
         OZ_VK_ASSERT(vkAllocateMemory(m_device, &allocInfo, nullptr, &vkBufferMemory));
     }
 
@@ -859,17 +872,15 @@ Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const 
         }
     }
 
-    // create buffer object
-    Buffer buffer    = OZ_CREATE_VK_OBJECT(Buffer);
-    buffer->vkBuffer = vkBuffer;
-    buffer->vkMemory = vkBufferMemory;
-    buffer->data     = pData;
+    BufferObject obj{};
+    obj.vkBuffer = vkBuffer;
+    obj.vkMemory = vkBufferMemory;
+    obj.data     = pData;
 
-    return buffer;
+    return Buffer{m_buffers.add(std::move(obj))};
 }
 
 DescriptorSetLayout GraphicsDevice::createDescriptorSetLayout(const DescriptorSetLayoutInfo& setLayout) {
-    // create descriptor set layout bindings
     std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings(setLayout.bindings.size());
     for (int bindingIdx = 0; bindingIdx < setLayout.bindings.size(); bindingIdx++) {
         const DescriptorSetLayoutBindingInfo& setLayoutBinding = setLayout.bindings[bindingIdx];
@@ -881,7 +892,6 @@ DescriptorSetLayout GraphicsDevice::createDescriptorSetLayout(const DescriptorSe
         descriptorSetLayoutBindings[bindingIdx].pImmutableSamplers = nullptr;
     };
 
-    // create descriptor set layout
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = descriptorSetLayoutBindings.size();
@@ -890,33 +900,31 @@ DescriptorSetLayout GraphicsDevice::createDescriptorSetLayout(const DescriptorSe
     VkDescriptorSetLayout vkDescriptorSetLayout;
     OZ_VK_ASSERT(vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &vkDescriptorSetLayout));
 
-    // create descriptor set layout object
-    DescriptorSetLayout descriptorSetLayout    = OZ_CREATE_VK_OBJECT(DescriptorSetLayout);
-    descriptorSetLayout->vkDescriptorSetLayout = vkDescriptorSetLayout;
+    DescriptorSetLayoutObject obj{};
+    obj.vkDescriptorSetLayout = vkDescriptorSetLayout;
 
-    return descriptorSetLayout;
+    return DescriptorSetLayout{m_descriptorSetLayouts.add(std::move(obj))};
 }
 
 DescriptorSet GraphicsDevice::createDescriptorSet(DescriptorSetLayout descriptorSetLayout, const DescriptorSetInfo& descriptorSetInfo) {
-    // create descriptor set
+    auto& layoutObj = m_descriptorSetLayouts.get(descriptorSetLayout.id);
+
     VkDescriptorSetAllocateInfo allocInfo{};
     {
         allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool     = m_descriptorPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts        = &descriptorSetLayout->vkDescriptorSetLayout;
+        allocInfo.pSetLayouts        = &layoutObj.vkDescriptorSetLayout;
     }
 
-    // allocate descriptor sets
     VkDescriptorSet vkDescriptorSet;
     OZ_VK_ASSERT(vkAllocateDescriptorSets(m_device, &allocInfo, &vkDescriptorSet));
 
-    // update descriptor sets
     for (int bindingIdx = 0; bindingIdx < descriptorSetInfo.bindings.size(); bindingIdx++) {
         const DescriptorSetBindingInfo& descriptorSetBinding = descriptorSetInfo.bindings[bindingIdx];
 
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = descriptorSetBinding.bufferInfo.buffer->vkBuffer;
+        bufferInfo.buffer = m_buffers.get(descriptorSetBinding.bufferInfo.buffer.id).vkBuffer;
         bufferInfo.offset = 0;
         bufferInfo.range  = descriptorSetBinding.bufferInfo.range;
 
@@ -928,23 +936,22 @@ DescriptorSet GraphicsDevice::createDescriptorSet(DescriptorSetLayout descriptor
         descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorWrite.descriptorCount  = 1;
         descriptorWrite.pBufferInfo      = &bufferInfo;
-        descriptorWrite.pImageInfo       = nullptr; // Optional
-        descriptorWrite.pTexelBufferView = nullptr; // Optional
+        descriptorWrite.pImageInfo       = nullptr;
+        descriptorWrite.pTexelBufferView = nullptr;
 
         vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
     }
 
-    // create descriptor set object
-    DescriptorSet descriptorSet    = OZ_CREATE_VK_OBJECT(DescriptorSet);
-    descriptorSet->vkDescriptorSet = vkDescriptorSet;
+    DescriptorSetObject obj{};
+    obj.vkDescriptorSet  = vkDescriptorSet;
+    obj.vkDescriptorPool = m_descriptorPool;
 
-    return descriptorSet;
+    return DescriptorSet{m_descriptorSets.add(std::move(obj))};
 }
 
 void GraphicsDevice::waitIdle() const { vkDeviceWaitIdle(m_device); }
 
 Fence GraphicsDevice::createFence() {
-    // create fence
     VkFence vkFence;
     {
         VkFenceCreateInfo fenceInfo{};
@@ -954,18 +961,16 @@ Fence GraphicsDevice::createFence() {
         OZ_VK_ASSERT(vkCreateFence(m_device, &fenceInfo, nullptr, &vkFence));
     }
 
-    // create fence object
-    Fence fence    = OZ_CREATE_VK_OBJECT(Fence);
-    fence->vkFence = vkFence;
-
-    return fence;
+    FenceObject obj{};
+    obj.vkFence = vkFence;
+    return Fence{m_fences.add(std::move(obj))};
 }
 
 void GraphicsDevice::waitFences(Fence fence, uint32_t fenceCount, bool waitAll) const {
-    vkWaitForFences(m_device, fenceCount, &fence->vkFence, waitAll ? VK_TRUE : VK_FALSE, UINT64_MAX);
+    vkWaitForFences(m_device, fenceCount, &m_fences.get(fence.id).vkFence, waitAll ? VK_TRUE : VK_FALSE, UINT64_MAX);
 }
 
-void GraphicsDevice::resetFences(Fence fence, uint32_t fenceCount) const { vkResetFences(m_device, fenceCount, &fence->vkFence); }
+void GraphicsDevice::resetFences(Fence fence, uint32_t fenceCount) const { vkResetFences(m_device, fenceCount, &m_fences.get(fence.id).vkFence); }
 
 CommandBuffer GraphicsDevice::getCurrentCommandBuffer() const { return m_commandBuffers[m_currentFrame]; }
 
@@ -977,9 +982,9 @@ uint32_t GraphicsDevice::getCurrentImage(Window window) const {
 
     uint32_t imageIndex;
     vkAcquireNextImageKHR(m_device,
-                          window->vkSwapChain,
+                          m_windows.get(window.id).vkSwapChain,
                           UINT64_MAX,
-                          m_imageAvailableSemaphores[m_currentFrame]->vkSemaphore,
+                          m_semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore,
                           VK_NULL_HANDLE,
                           &imageIndex);
 
@@ -988,37 +993,39 @@ uint32_t GraphicsDevice::getCurrentImage(Window window) const {
 
 uint32_t GraphicsDevice::getCurrentFrame() const { return m_currentFrame; }
 
-bool GraphicsDevice::isWindowOpen(Window window) const { return !glfwWindowShouldClose(window->vkWindow); }
+bool GraphicsDevice::isWindowOpen(Window window) const { return !glfwWindowShouldClose(m_windows.get(window.id).vkWindow); }
 
 void GraphicsDevice::presentImage(Window window, uint32_t imageIndex) {
+    auto& windowObj = m_windows.get(window.id);
     {
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores[m_currentFrame]->vkSemaphore;
+        presentInfo.pWaitSemaphores    = &m_semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &window->vkSwapChain;
+        presentInfo.pSwapchains        = &windowObj.vkSwapChain;
         presentInfo.pImageIndices      = &imageIndex;
-        presentInfo.pResults           = nullptr; // optional
+        presentInfo.pResults           = nullptr;
 
-        OZ_VK_ASSERT(vkQueuePresentKHR(window->vkPresentQueue, &presentInfo));
+        OZ_VK_ASSERT(vkQueuePresentKHR(windowObj.vkPresentQueue, &presentInfo));
     }
 
     m_currentFrame = (m_currentFrame + 1) % FRAMES_IN_FLIGHT;
 }
 
 void GraphicsDevice::beginCmd(CommandBuffer cmd, bool isSingleUse) const {
-    vkResetCommandBuffer(cmd->vkCommandBuffer, 0);
+    auto& cmdObj = m_cmdBuffers.get(cmd.id);
+    vkResetCommandBuffer(cmdObj.vkCommandBuffer, 0);
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags            = isSingleUse ? VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
-    beginInfo.pInheritanceInfo = nullptr; // optional
+    beginInfo.pInheritanceInfo = nullptr;
 
-    OZ_VK_ASSERT(vkBeginCommandBuffer(cmd->vkCommandBuffer, &beginInfo));
+    OZ_VK_ASSERT(vkBeginCommandBuffer(cmdObj.vkCommandBuffer, &beginInfo));
 }
 
-void GraphicsDevice::endCmd(CommandBuffer cmd) const { OZ_VK_ASSERT(vkEndCommandBuffer(cmd->vkCommandBuffer)); }
+void GraphicsDevice::endCmd(CommandBuffer cmd) const { OZ_VK_ASSERT(vkEndCommandBuffer(m_cmdBuffers.get(cmd.id).vkCommandBuffer)); }
 
 void GraphicsDevice::submitCmd(CommandBuffer cmd) const {
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1027,79 +1034,82 @@ void GraphicsDevice::submitCmd(CommandBuffer cmd) const {
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
         submitInfo.waitSemaphoreCount   = 1;
-        submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores[m_currentFrame]->vkSemaphore;
+        submitInfo.pWaitSemaphores      = &m_semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore;
         submitInfo.pWaitDstStageMask    = &waitStage;
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &cmd->vkCommandBuffer;
+        submitInfo.pCommandBuffers      = &m_cmdBuffers.get(cmd.id).vkCommandBuffer;
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores    = &m_renderFinishedSemaphores[m_currentFrame]->vkSemaphore;
+        submitInfo.pSignalSemaphores    = &m_semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
 
-        OZ_VK_ASSERT(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_inFlightFences[m_currentFrame]->vkFence));
+        OZ_VK_ASSERT(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_fences.get(m_inFlightFences[m_currentFrame].id).vkFence));
     }
 }
 
 void GraphicsDevice::beginRenderPass(CommandBuffer cmd, RenderPass renderPass, uint32_t imageIndex) const {
+    auto& cmdObj = m_cmdBuffers.get(cmd.id);
+    auto& rpObj  = m_renderPasses.get(renderPass.id);
+
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass        = renderPass->vkRenderPass;
-    renderPassInfo.framebuffer       = renderPass->vkFrameBuffers[imageIndex];
+    renderPassInfo.renderPass        = rpObj.vkRenderPass;
+    renderPassInfo.framebuffer       = rpObj.vkFrameBuffers[imageIndex];
     renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = renderPass->vkExtent;
+    renderPassInfo.renderArea.extent = rpObj.vkExtent;
     VkClearValue clearColor          = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
     renderPassInfo.clearValueCount   = 1;
     renderPassInfo.pClearValues      = &clearColor;
 
-    vkCmdBeginRenderPass(cmd->vkCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(cmd->vkCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, renderPass->vkGraphicsPipeline);
+    vkCmdBeginRenderPass(cmdObj.vkCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmdObj.vkCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, rpObj.vkGraphicsPipeline);
 
     VkViewport viewport{};
     viewport.x        = 0.0f;
     viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(renderPass->vkExtent.width);
-    viewport.height   = static_cast<float>(renderPass->vkExtent.height);
+    viewport.width    = static_cast<float>(rpObj.vkExtent.width);
+    viewport.height   = static_cast<float>(rpObj.vkExtent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd->vkCommandBuffer, 0, 1, &viewport);
+    vkCmdSetViewport(cmdObj.vkCommandBuffer, 0, 1, &viewport);
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = renderPass->vkExtent;
-    vkCmdSetScissor(cmd->vkCommandBuffer, 0, 1, &scissor);
+    scissor.extent = rpObj.vkExtent;
+    vkCmdSetScissor(cmdObj.vkCommandBuffer, 0, 1, &scissor);
 }
 
-void GraphicsDevice::endRenderPass(CommandBuffer cmd) const { vkCmdEndRenderPass(cmd->vkCommandBuffer); }
+void GraphicsDevice::endRenderPass(CommandBuffer cmd) const { vkCmdEndRenderPass(m_cmdBuffers.get(cmd.id).vkCommandBuffer); }
 
 void GraphicsDevice::draw(CommandBuffer cmd, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const {
-    vkCmdDraw(cmd->vkCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+    vkCmdDraw(m_cmdBuffers.get(cmd.id).vkCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
 void GraphicsDevice::drawIndexed(
     CommandBuffer cmd, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, uint32_t vertexOffset, uint32_t firstInstance) const {
-    vkCmdDrawIndexed(cmd->vkCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+    vkCmdDrawIndexed(m_cmdBuffers.get(cmd.id).vkCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 void GraphicsDevice::bindVertexBuffer(CommandBuffer cmd, Buffer vertexBuffer) {
-    VkBuffer vertexBuffers[] = {vertexBuffer->vkBuffer};    
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd->vkCommandBuffer, 0, 1, vertexBuffers, offsets);
+    VkBuffer     vertexBuffers[] = {m_buffers.get(vertexBuffer.id).vkBuffer};
+    VkDeviceSize offsets[]       = {0};
+    vkCmdBindVertexBuffers(m_cmdBuffers.get(cmd.id).vkCommandBuffer, 0, 1, vertexBuffers, offsets);
 }
 
 void GraphicsDevice::bindIndexBuffer(CommandBuffer cmd, Buffer indexBuffer) {
-    vkCmdBindIndexBuffer(cmd->vkCommandBuffer, indexBuffer->vkBuffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(m_cmdBuffers.get(cmd.id).vkCommandBuffer, m_buffers.get(indexBuffer.id).vkBuffer, 0, VK_INDEX_TYPE_UINT16);
 }
 
 void GraphicsDevice::bindDescriptorSet(CommandBuffer cmd, RenderPass renderPass, DescriptorSet descriptorSet, uint32_t setIndex) {
-    vkCmdBindDescriptorSets(cmd->vkCommandBuffer,
+    vkCmdBindDescriptorSets(m_cmdBuffers.get(cmd.id).vkCommandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            renderPass->vkPipelineLayout,
+                            m_renderPasses.get(renderPass.id).vkPipelineLayout,
                             setIndex,
                             1,
-                            &(descriptorSet->vkDescriptorSet),
+                            &(m_descriptorSets.get(descriptorSet.id).vkDescriptorSet),
                             0,
                             nullptr);
 }
 
-void GraphicsDevice::updateBuffer(Buffer buffer, const void* data, size_t size) { memcpy(buffer->data, data, size); }
+void GraphicsDevice::updateBuffer(Buffer buffer, const void* data, size_t size) { memcpy(m_buffers.get(buffer.id).data, data, size); }
 
 void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
     VkCommandBufferAllocateInfo allocInfo{};
@@ -1121,7 +1131,7 @@ void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
     copyRegion.srcOffset = 0;
     copyRegion.dstOffset = 0;
     copyRegion.size      = size;
-    vkCmdCopyBuffer(commandBuffer, src->vkBuffer, dst->vkBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, m_buffers.get(src.id).vkBuffer, m_buffers.get(dst.id).vkBuffer, 1, &copyRegion);
 
     vkEndCommandBuffer(commandBuffer);
 
@@ -1136,13 +1146,49 @@ void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
     vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
 }
 
-void GraphicsDevice::free(Window window) const { OZ_FREE_VK_OBJECT(m_device, window); }
-void GraphicsDevice::free(Shader shader) const { OZ_FREE_VK_OBJECT(m_device, shader); }
-void GraphicsDevice::free(RenderPass renderPass) const { OZ_FREE_VK_OBJECT(m_device, renderPass) }
-void GraphicsDevice::free(Semaphore semaphore) const { OZ_FREE_VK_OBJECT(m_device, semaphore); }
-void GraphicsDevice::free(Fence fence) const { OZ_FREE_VK_OBJECT(m_device, fence); }
-void GraphicsDevice::free(CommandBuffer commandBuffer) const { OZ_FREE_VK_OBJECT(m_device, commandBuffer); }
-void GraphicsDevice::free(Buffer buffer) const { OZ_FREE_VK_OBJECT(m_device, buffer); }
-void GraphicsDevice::free(DescriptorSetLayout descriptorSetLayout) const { OZ_FREE_VK_OBJECT(m_device, descriptorSetLayout); }
+void GraphicsDevice::free(Window window) {
+    m_windows.get(window.id).free(m_device);
+    m_windows.remove(window.id);
+}
+
+void GraphicsDevice::free(Shader shader) {
+    m_shaders.get(shader.id).free(m_device);
+    m_shaders.remove(shader.id);
+}
+
+void GraphicsDevice::free(RenderPass renderPass) {
+    m_renderPasses.get(renderPass.id).free(m_device);
+    m_renderPasses.remove(renderPass.id);
+}
+
+void GraphicsDevice::free(Semaphore semaphore) {
+    m_semaphores.get(semaphore.id).free(m_device);
+    m_semaphores.remove(semaphore.id);
+}
+
+void GraphicsDevice::free(Fence fence) {
+    m_fences.get(fence.id).free(m_device);
+    m_fences.remove(fence.id);
+}
+
+void GraphicsDevice::free(CommandBuffer commandBuffer) {
+    m_cmdBuffers.get(commandBuffer.id).free(m_device);
+    m_cmdBuffers.remove(commandBuffer.id);
+}
+
+void GraphicsDevice::free(Buffer buffer) {
+    m_buffers.get(buffer.id).free(m_device);
+    m_buffers.remove(buffer.id);
+}
+
+void GraphicsDevice::free(DescriptorSetLayout descriptorSetLayout) {
+    m_descriptorSetLayouts.get(descriptorSetLayout.id).free(m_device);
+    m_descriptorSetLayouts.remove(descriptorSetLayout.id);
+}
+
+void GraphicsDevice::free(DescriptorSet descriptorSet) {
+    m_descriptorSets.get(descriptorSet.id).free(m_device);
+    m_descriptorSets.remove(descriptorSet.id);
+}
 
 } // namespace oz::gfx::vk
