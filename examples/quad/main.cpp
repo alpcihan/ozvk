@@ -11,11 +11,11 @@ const std::vector<Vertex> vertices       = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}
                                             {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
                                             {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
                                             {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
-VkDeviceSize              vertBufferSize = sizeof(vertices[0]) * vertices.size();
+const uint64_t            vertBufferSize = sizeof(vertices[0]) * vertices.size();
 
 // index data
 const std::vector<uint16_t> indices       = {0, 1, 2, 2, 3, 0};
-VkDeviceSize                idxBufferSize = sizeof(indices[0]) * indices.size();
+const uint64_t              idxBufferSize = sizeof(indices[0]) * indices.size();
 
 // uniform buffer data
 struct MVP {
@@ -25,8 +25,11 @@ struct MVP {
 };
 
 int main() {
+    const uint32_t windowWidth  = 800;
+    const uint32_t windowHeight = 600;
+
     GraphicsDevice device(true);
-    Window         window = device.createWindow(800, 600, "oz");
+    Window         window = device.createWindow(windowWidth, windowHeight, "oz");
 
     // create shaders
     Shader vertShader = device.createShader("uniform.vert", ShaderStage::Vertex);
@@ -89,7 +92,6 @@ int main() {
     while (device.isWindowOpen(window)) {
         uint32_t      imageIndex = device.getCurrentImage(window);
         CommandBuffer cmd        = device.getCurrentCommandBuffer();
-        uint32_t      frame      = device.getCurrentFrame();
 
         // update ubo
         {
@@ -99,7 +101,7 @@ int main() {
             MVP         mvp{};
             mvp.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
             mvp.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-            mvp.proj  = glm::perspective(glm::radians(45.0f), 800 / (float)600, 0.1f, 10.0f);
+            mvp.proj  = glm::perspective(glm::radians(45.0f), (float)windowWidth / (float)windowHeight, 0.1f, 10.0f);
             mvp.proj[1][1] *= -1;
             device.updateBuffer(mvpBuffer, &mvp, sizeof(mvp));
             device.updateBuffer(countBuffer, &frameCount, sizeof(frameCount));

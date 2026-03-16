@@ -1,9 +1,23 @@
 #include "oz/gfx/vulkan/graphics_device.h"
+#include "oz/gfx/vulkan/objects_internal.h"
+#include "oz/gfx/vulkan/resource_pool.h"
 #include "oz/core/file.h"
 
 #include <cstring>
 
 namespace oz::gfx::vk {
+
+struct DevicePools {
+    ResourcePool<WindowObject>              windows;
+    ResourcePool<ShaderObject>              shaders;
+    ResourcePool<RenderPassObject>          renderPasses;
+    ResourcePool<FenceObject>               fences;
+    ResourcePool<SemaphoreObject>           semaphores;
+    ResourcePool<CommandBufferObject>       cmdBuffers;
+    ResourcePool<BufferObject>              buffers;
+    ResourcePool<DescriptorSetLayoutObject> descriptorSetLayouts;
+    ResourcePool<DescriptorSetObject>       descriptorSets;
+};
 
 #define OZ_VK_ASSERT(result) assert(result == VK_SUCCESS)
 
@@ -12,7 +26,7 @@ namespace oz::gfx::vk {
 #endif
 
 namespace {
-static constexpr int FRAMES_IN_FLIGHT = 1;
+static constexpr int FRAMES_IN_FLIGHT = 2;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT      messageSeverity,
                                                     VkDebugUtilsMessageTypeFlagsEXT             messageType,
@@ -28,6 +42,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 } // namespace
 
 GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
+    m_pools = std::make_unique<DevicePools>();
+
     // init glfw
     // TODO: seperate glfw logic
     glfwInit();
@@ -273,14 +289,17 @@ GraphicsDevice::GraphicsDevice(const bool enableValidationLayers) {
 }
 
 GraphicsDevice::~GraphicsDevice() {
+    // wait for GPU to finish all work before cleanup
+    vkDeviceWaitIdle(m_device);
+
     // drain all resource pools (before destroying pools/device)
     auto cleanup = [&](auto& pool) { pool.forEachAlive([&](auto& obj) { obj.free(m_device); }); };
-    cleanup(m_descriptorSets);
-    cleanup(m_descriptorSetLayouts);
-    cleanup(m_renderPasses);
-    cleanup(m_buffers);
-    cleanup(m_shaders);
-    cleanup(m_cmdBuffers);
+    cleanup(m_pools->descriptorSets);
+    cleanup(m_pools->descriptorSetLayouts);
+    cleanup(m_pools->renderPasses);
+    cleanup(m_pools->buffers);
+    cleanup(m_pools->shaders);
+    cleanup(m_pools->cmdBuffers);
 
     // destroy synchronization objects
     for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
@@ -292,9 +311,9 @@ GraphicsDevice::~GraphicsDevice() {
     m_imageAvailableSemaphores.clear();
     m_inFlightFences.clear();
 
-    cleanup(m_semaphores);
-    cleanup(m_fences);
-    cleanup(m_windows);
+    cleanup(m_pools->semaphores);
+    cleanup(m_pools->fences);
+    cleanup(m_pools->windows);
 
     // destroy descriptor pool
     vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
@@ -512,7 +531,7 @@ Window GraphicsDevice::createWindow(const uint32_t width, const uint32_t height,
     obj.vkPresentQueue         = vkPresentQueue;
     obj.vkInstance             = m_instance;
 
-    return Window{m_windows.add(std::move(obj))};
+    return Window{m_pools->windows.add(std::move(obj))};
 }
 
 CommandBuffer GraphicsDevice::createCommandBuffer() {
@@ -530,7 +549,7 @@ CommandBuffer GraphicsDevice::createCommandBuffer() {
 
     CommandBufferObject obj{};
     obj.vkCommandBuffer = vkCommandBuffer;
-    return CommandBuffer{m_cmdBuffers.add(std::move(obj))};
+    return CommandBuffer{m_pools->cmdBuffers.add(std::move(obj))};
 }
 
 Shader GraphicsDevice::createShader(const std::string& path, ShaderStage stage) {
@@ -560,7 +579,7 @@ Shader GraphicsDevice::createShader(const std::string& path, ShaderStage stage) 
     obj.vkShaderModule                  = shaderModule;
     obj.vkPipelineShaderStageCreateInfo = shaderStageInfo;
 
-    return Shader{m_shaders.add(std::move(obj))};
+    return Shader{m_pools->shaders.add(std::move(obj))};
 }
 
 RenderPass GraphicsDevice::createRenderPass(Shader                                  vertexShader,
@@ -568,9 +587,9 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
                                             Window                                  window,
                                             const VertexLayoutInfo&                 vertexLayout,
                                             const std::vector<DescriptorSetLayout>& descriptorSetLayouts) {
-    auto& windowObj = m_windows.get(window.id);
-    auto& vertObj   = m_shaders.get(vertexShader.id);
-    auto& fragObj   = m_shaders.get(fragmentShader.id);
+    auto& windowObj = m_pools->windows.get(window.id);
+    auto& vertObj   = m_pools->shaders.get(vertexShader.id);
+    auto& fragObj   = m_pools->shaders.get(fragmentShader.id);
 
     // create render pass
     VkRenderPass vkRenderPass;
@@ -618,7 +637,7 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
     VkPipelineLayout                   vkPipelineLayout;
     std::vector<VkDescriptorSetLayout> vkDescriptorSetLayouts;
     for (const auto& layout : descriptorSetLayouts) {
-        vkDescriptorSetLayouts.push_back(m_descriptorSetLayouts.get(layout.id).vkDescriptorSetLayout);
+        vkDescriptorSetLayouts.push_back(m_pools->descriptorSetLayouts.get(layout.id).vkDescriptorSetLayout);
     }
 
     {
@@ -776,7 +795,7 @@ RenderPass GraphicsDevice::createRenderPass(Shader                              
     obj.vkExtent           = windowObj.vkSwapChainExtent;
     obj.vkFrameBuffers     = std::move(vkFrameBuffers);
 
-    return RenderPass{m_renderPasses.add(std::move(obj))};
+    return RenderPass{m_pools->renderPasses.add(std::move(obj))};
 }
 
 Semaphore GraphicsDevice::createSemaphore() {
@@ -790,7 +809,7 @@ Semaphore GraphicsDevice::createSemaphore() {
 
     SemaphoreObject obj{};
     obj.vkSemaphore = vkSemaphore;
-    return Semaphore{m_semaphores.add(std::move(obj))};
+    return Semaphore{m_pools->semaphores.add(std::move(obj))};
 }
 
 Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const void* data) {
@@ -877,7 +896,7 @@ Buffer GraphicsDevice::createBuffer(BufferType bufferType, uint64_t size, const 
     obj.vkMemory = vkBufferMemory;
     obj.data     = pData;
 
-    return Buffer{m_buffers.add(std::move(obj))};
+    return Buffer{m_pools->buffers.add(std::move(obj))};
 }
 
 DescriptorSetLayout GraphicsDevice::createDescriptorSetLayout(const DescriptorSetLayoutInfo& setLayout) {
@@ -903,11 +922,11 @@ DescriptorSetLayout GraphicsDevice::createDescriptorSetLayout(const DescriptorSe
     DescriptorSetLayoutObject obj{};
     obj.vkDescriptorSetLayout = vkDescriptorSetLayout;
 
-    return DescriptorSetLayout{m_descriptorSetLayouts.add(std::move(obj))};
+    return DescriptorSetLayout{m_pools->descriptorSetLayouts.add(std::move(obj))};
 }
 
 DescriptorSet GraphicsDevice::createDescriptorSet(DescriptorSetLayout descriptorSetLayout, const DescriptorSetInfo& descriptorSetInfo) {
-    auto& layoutObj = m_descriptorSetLayouts.get(descriptorSetLayout.id);
+    auto& layoutObj = m_pools->descriptorSetLayouts.get(descriptorSetLayout.id);
 
     VkDescriptorSetAllocateInfo allocInfo{};
     {
@@ -924,7 +943,7 @@ DescriptorSet GraphicsDevice::createDescriptorSet(DescriptorSetLayout descriptor
         const DescriptorSetBindingInfo& descriptorSetBinding = descriptorSetInfo.bindings[bindingIdx];
 
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = m_buffers.get(descriptorSetBinding.bufferInfo.buffer.id).vkBuffer;
+        bufferInfo.buffer = m_pools->buffers.get(descriptorSetBinding.bufferInfo.buffer.id).vkBuffer;
         bufferInfo.offset = 0;
         bufferInfo.range  = descriptorSetBinding.bufferInfo.range;
 
@@ -946,7 +965,7 @@ DescriptorSet GraphicsDevice::createDescriptorSet(DescriptorSetLayout descriptor
     obj.vkDescriptorSet  = vkDescriptorSet;
     obj.vkDescriptorPool = m_descriptorPool;
 
-    return DescriptorSet{m_descriptorSets.add(std::move(obj))};
+    return DescriptorSet{m_pools->descriptorSets.add(std::move(obj))};
 }
 
 void GraphicsDevice::waitIdle() const { vkDeviceWaitIdle(m_device); }
@@ -963,14 +982,14 @@ Fence GraphicsDevice::createFence() {
 
     FenceObject obj{};
     obj.vkFence = vkFence;
-    return Fence{m_fences.add(std::move(obj))};
+    return Fence{m_pools->fences.add(std::move(obj))};
 }
 
 void GraphicsDevice::waitFences(Fence fence, uint32_t fenceCount, bool waitAll) const {
-    vkWaitForFences(m_device, fenceCount, &m_fences.get(fence.id).vkFence, waitAll ? VK_TRUE : VK_FALSE, UINT64_MAX);
+    vkWaitForFences(m_device, fenceCount, &m_pools->fences.get(fence.id).vkFence, waitAll ? VK_TRUE : VK_FALSE, UINT64_MAX);
 }
 
-void GraphicsDevice::resetFences(Fence fence, uint32_t fenceCount) const { vkResetFences(m_device, fenceCount, &m_fences.get(fence.id).vkFence); }
+void GraphicsDevice::resetFences(Fence fence, uint32_t fenceCount) const { vkResetFences(m_device, fenceCount, &m_pools->fences.get(fence.id).vkFence); }
 
 CommandBuffer GraphicsDevice::getCurrentCommandBuffer() const { return m_commandBuffers[m_currentFrame]; }
 
@@ -982,9 +1001,9 @@ uint32_t GraphicsDevice::getCurrentImage(Window window) const {
 
     uint32_t imageIndex;
     vkAcquireNextImageKHR(m_device,
-                          m_windows.get(window.id).vkSwapChain,
+                          m_pools->windows.get(window.id).vkSwapChain,
                           UINT64_MAX,
-                          m_semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore,
+                          m_pools->semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore,
                           VK_NULL_HANDLE,
                           &imageIndex);
 
@@ -993,15 +1012,15 @@ uint32_t GraphicsDevice::getCurrentImage(Window window) const {
 
 uint32_t GraphicsDevice::getCurrentFrame() const { return m_currentFrame; }
 
-bool GraphicsDevice::isWindowOpen(Window window) const { return !glfwWindowShouldClose(m_windows.get(window.id).vkWindow); }
+bool GraphicsDevice::isWindowOpen(Window window) const { return !glfwWindowShouldClose(m_pools->windows.get(window.id).vkWindow); }
 
 void GraphicsDevice::presentImage(Window window, uint32_t imageIndex) {
-    auto& windowObj = m_windows.get(window.id);
+    auto& windowObj = m_pools->windows.get(window.id);
     {
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores    = &m_semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
+        presentInfo.pWaitSemaphores    = &m_pools->semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
         presentInfo.swapchainCount     = 1;
         presentInfo.pSwapchains        = &windowObj.vkSwapChain;
         presentInfo.pImageIndices      = &imageIndex;
@@ -1014,7 +1033,7 @@ void GraphicsDevice::presentImage(Window window, uint32_t imageIndex) {
 }
 
 void GraphicsDevice::beginCmd(CommandBuffer cmd, bool isSingleUse) const {
-    auto& cmdObj = m_cmdBuffers.get(cmd.id);
+    auto& cmdObj = m_pools->cmdBuffers.get(cmd.id);
     vkResetCommandBuffer(cmdObj.vkCommandBuffer, 0);
 
     VkCommandBufferBeginInfo beginInfo{};
@@ -1025,7 +1044,7 @@ void GraphicsDevice::beginCmd(CommandBuffer cmd, bool isSingleUse) const {
     OZ_VK_ASSERT(vkBeginCommandBuffer(cmdObj.vkCommandBuffer, &beginInfo));
 }
 
-void GraphicsDevice::endCmd(CommandBuffer cmd) const { OZ_VK_ASSERT(vkEndCommandBuffer(m_cmdBuffers.get(cmd.id).vkCommandBuffer)); }
+void GraphicsDevice::endCmd(CommandBuffer cmd) const { OZ_VK_ASSERT(vkEndCommandBuffer(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer)); }
 
 void GraphicsDevice::submitCmd(CommandBuffer cmd) const {
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1034,20 +1053,20 @@ void GraphicsDevice::submitCmd(CommandBuffer cmd) const {
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
         submitInfo.waitSemaphoreCount   = 1;
-        submitInfo.pWaitSemaphores      = &m_semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore;
+        submitInfo.pWaitSemaphores      = &m_pools->semaphores.get(m_imageAvailableSemaphores[m_currentFrame].id).vkSemaphore;
         submitInfo.pWaitDstStageMask    = &waitStage;
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_cmdBuffers.get(cmd.id).vkCommandBuffer;
+        submitInfo.pCommandBuffers      = &m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer;
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores    = &m_semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
+        submitInfo.pSignalSemaphores    = &m_pools->semaphores.get(m_renderFinishedSemaphores[m_currentFrame].id).vkSemaphore;
 
-        OZ_VK_ASSERT(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_fences.get(m_inFlightFences[m_currentFrame].id).vkFence));
+        OZ_VK_ASSERT(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_pools->fences.get(m_inFlightFences[m_currentFrame].id).vkFence));
     }
 }
 
 void GraphicsDevice::beginRenderPass(CommandBuffer cmd, RenderPass renderPass, uint32_t imageIndex) const {
-    auto& cmdObj = m_cmdBuffers.get(cmd.id);
-    auto& rpObj  = m_renderPasses.get(renderPass.id);
+    auto& cmdObj = m_pools->cmdBuffers.get(cmd.id);
+    auto& rpObj  = m_pools->renderPasses.get(renderPass.id);
 
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1077,39 +1096,39 @@ void GraphicsDevice::beginRenderPass(CommandBuffer cmd, RenderPass renderPass, u
     vkCmdSetScissor(cmdObj.vkCommandBuffer, 0, 1, &scissor);
 }
 
-void GraphicsDevice::endRenderPass(CommandBuffer cmd) const { vkCmdEndRenderPass(m_cmdBuffers.get(cmd.id).vkCommandBuffer); }
+void GraphicsDevice::endRenderPass(CommandBuffer cmd) const { vkCmdEndRenderPass(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer); }
 
 void GraphicsDevice::draw(CommandBuffer cmd, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const {
-    vkCmdDraw(m_cmdBuffers.get(cmd.id).vkCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+    vkCmdDraw(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
 void GraphicsDevice::drawIndexed(
     CommandBuffer cmd, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, uint32_t vertexOffset, uint32_t firstInstance) const {
-    vkCmdDrawIndexed(m_cmdBuffers.get(cmd.id).vkCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+    vkCmdDrawIndexed(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 void GraphicsDevice::bindVertexBuffer(CommandBuffer cmd, Buffer vertexBuffer) {
-    VkBuffer     vertexBuffers[] = {m_buffers.get(vertexBuffer.id).vkBuffer};
+    VkBuffer     vertexBuffers[] = {m_pools->buffers.get(vertexBuffer.id).vkBuffer};
     VkDeviceSize offsets[]       = {0};
-    vkCmdBindVertexBuffers(m_cmdBuffers.get(cmd.id).vkCommandBuffer, 0, 1, vertexBuffers, offsets);
+    vkCmdBindVertexBuffers(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer, 0, 1, vertexBuffers, offsets);
 }
 
 void GraphicsDevice::bindIndexBuffer(CommandBuffer cmd, Buffer indexBuffer) {
-    vkCmdBindIndexBuffer(m_cmdBuffers.get(cmd.id).vkCommandBuffer, m_buffers.get(indexBuffer.id).vkBuffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer, m_pools->buffers.get(indexBuffer.id).vkBuffer, 0, VK_INDEX_TYPE_UINT16);
 }
 
 void GraphicsDevice::bindDescriptorSet(CommandBuffer cmd, RenderPass renderPass, DescriptorSet descriptorSet, uint32_t setIndex) {
-    vkCmdBindDescriptorSets(m_cmdBuffers.get(cmd.id).vkCommandBuffer,
+    vkCmdBindDescriptorSets(m_pools->cmdBuffers.get(cmd.id).vkCommandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_renderPasses.get(renderPass.id).vkPipelineLayout,
+                            m_pools->renderPasses.get(renderPass.id).vkPipelineLayout,
                             setIndex,
                             1,
-                            &(m_descriptorSets.get(descriptorSet.id).vkDescriptorSet),
+                            &(m_pools->descriptorSets.get(descriptorSet.id).vkDescriptorSet),
                             0,
                             nullptr);
 }
 
-void GraphicsDevice::updateBuffer(Buffer buffer, const void* data, size_t size) { memcpy(m_buffers.get(buffer.id).data, data, size); }
+void GraphicsDevice::updateBuffer(Buffer buffer, const void* data, size_t size) { memcpy(m_pools->buffers.get(buffer.id).data, data, size); }
 
 void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
     VkCommandBufferAllocateInfo allocInfo{};
@@ -1131,7 +1150,7 @@ void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
     copyRegion.srcOffset = 0;
     copyRegion.dstOffset = 0;
     copyRegion.size      = size;
-    vkCmdCopyBuffer(commandBuffer, m_buffers.get(src.id).vkBuffer, m_buffers.get(dst.id).vkBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(commandBuffer, m_pools->buffers.get(src.id).vkBuffer, m_pools->buffers.get(dst.id).vkBuffer, 1, &copyRegion);
 
     vkEndCommandBuffer(commandBuffer);
 
@@ -1147,48 +1166,48 @@ void GraphicsDevice::copyBuffer(Buffer src, Buffer dst, uint64_t size) {
 }
 
 void GraphicsDevice::free(Window window) {
-    m_windows.get(window.id).free(m_device);
-    m_windows.remove(window.id);
+    m_pools->windows.get(window.id).free(m_device);
+    m_pools->windows.remove(window.id);
 }
 
 void GraphicsDevice::free(Shader shader) {
-    m_shaders.get(shader.id).free(m_device);
-    m_shaders.remove(shader.id);
+    m_pools->shaders.get(shader.id).free(m_device);
+    m_pools->shaders.remove(shader.id);
 }
 
 void GraphicsDevice::free(RenderPass renderPass) {
-    m_renderPasses.get(renderPass.id).free(m_device);
-    m_renderPasses.remove(renderPass.id);
+    m_pools->renderPasses.get(renderPass.id).free(m_device);
+    m_pools->renderPasses.remove(renderPass.id);
 }
 
 void GraphicsDevice::free(Semaphore semaphore) {
-    m_semaphores.get(semaphore.id).free(m_device);
-    m_semaphores.remove(semaphore.id);
+    m_pools->semaphores.get(semaphore.id).free(m_device);
+    m_pools->semaphores.remove(semaphore.id);
 }
 
 void GraphicsDevice::free(Fence fence) {
-    m_fences.get(fence.id).free(m_device);
-    m_fences.remove(fence.id);
+    m_pools->fences.get(fence.id).free(m_device);
+    m_pools->fences.remove(fence.id);
 }
 
 void GraphicsDevice::free(CommandBuffer commandBuffer) {
-    m_cmdBuffers.get(commandBuffer.id).free(m_device);
-    m_cmdBuffers.remove(commandBuffer.id);
+    m_pools->cmdBuffers.get(commandBuffer.id).free(m_device);
+    m_pools->cmdBuffers.remove(commandBuffer.id);
 }
 
 void GraphicsDevice::free(Buffer buffer) {
-    m_buffers.get(buffer.id).free(m_device);
-    m_buffers.remove(buffer.id);
+    m_pools->buffers.get(buffer.id).free(m_device);
+    m_pools->buffers.remove(buffer.id);
 }
 
 void GraphicsDevice::free(DescriptorSetLayout descriptorSetLayout) {
-    m_descriptorSetLayouts.get(descriptorSetLayout.id).free(m_device);
-    m_descriptorSetLayouts.remove(descriptorSetLayout.id);
+    m_pools->descriptorSetLayouts.get(descriptorSetLayout.id).free(m_device);
+    m_pools->descriptorSetLayouts.remove(descriptorSetLayout.id);
 }
 
 void GraphicsDevice::free(DescriptorSet descriptorSet) {
-    m_descriptorSets.get(descriptorSet.id).free(m_device);
-    m_descriptorSets.remove(descriptorSet.id);
+    m_pools->descriptorSets.get(descriptorSet.id).free(m_device);
+    m_pools->descriptorSets.remove(descriptorSet.id);
 }
 
 } // namespace oz::gfx::vk

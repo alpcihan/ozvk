@@ -2,11 +2,13 @@
 
 #include "oz/gfx/vulkan/common.h"
 #include "oz/gfx/vulkan/objects.h"
-#include "oz/gfx/vulkan/objects_internal.h"
 #include "oz/gfx/vulkan/property_structs.h"
-#include "oz/gfx/vulkan/resource_pool.h"
+
+#include <memory>
 
 namespace oz::gfx::vk {
+
+struct DevicePools;
 
 class GraphicsDevice final {
   public:
@@ -37,7 +39,6 @@ class GraphicsDevice final {
 
     // sync methods
     void waitIdle() const;
-    void waitGraphicsQueueIdle() const;
     void waitFences(Fence fence, uint32_t fenceCount, bool waitAll = true) const;
     void resetFences(Fence fence, uint32_t fenceCount) const;
 
@@ -81,10 +82,8 @@ class GraphicsDevice final {
     void free(DescriptorSetLayout descriptorSetLayout);
     void free(DescriptorSet descriptorSet);
 
-  public:
-    VkDevice m_device = VK_NULL_HANDLE;
-
   private:
+    VkDevice         m_device         = VK_NULL_HANDLE;
     VkInstance       m_instance       = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 
@@ -104,16 +103,7 @@ class GraphicsDevice final {
 
     uint32_t m_currentFrame = 0;
 
-    // resource pools
-    ResourcePool<WindowObject>              m_windows;
-    ResourcePool<ShaderObject>              m_shaders;
-    ResourcePool<RenderPassObject>          m_renderPasses;
-    ResourcePool<FenceObject>               m_fences;
-    ResourcePool<SemaphoreObject>           m_semaphores;
-    ResourcePool<CommandBufferObject>       m_cmdBuffers;
-    ResourcePool<BufferObject>              m_buffers;
-    ResourcePool<DescriptorSetLayoutObject> m_descriptorSetLayouts;
-    ResourcePool<DescriptorSetObject>       m_descriptorSets;
+    std::unique_ptr<DevicePools> m_pools;
 };
 
 } // namespace oz::gfx::vk
